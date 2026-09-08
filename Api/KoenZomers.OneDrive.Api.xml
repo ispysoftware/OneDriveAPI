@@ -776,6 +776,11 @@
             <param name="errorDetails">Details returned by the OneDrive API about why the request failed (optional)</param>
             <param name="innerException">Inner exception that was thrown to indicate failure of the operation (optional)</param>
         </member>
+        <member name="P:KoenZomers.OneDrive.Api.Exceptions.TokenRetrievalFailedException.ErrorDetails">
+            <summary>
+            Error returned by the token endpoint (e.g. Error = "invalid_grant", ErrorDescription = "AADSTS70008: ..."), or NULL if the response could not be parsed
+            </summary>
+        </member>
         <member name="T:KoenZomers.OneDrive.Api.Helpers.QueryStringBuilder">
             <summary>
             Helper class for building querystrings
@@ -976,6 +981,11 @@
             <param name="queryBuilder">The querystring parameters to send in the POST body</param>
             <returns>Access token for OneDrive or NULL if unable to retrieve an access token</returns>
             <exception cref="T:KoenZomers.OneDrive.Api.Exceptions.TokenRetrievalFailedException">Thrown when unable to retrieve a valid access token</exception>
+        </member>
+        <member name="M:KoenZomers.OneDrive.Api.OneDriveApi.DescribeUnparsedTokenResponse(System.Net.Http.HttpResponseMessage,System.String)">
+            <summary>
+            Builds a human readable description of a non-success token endpoint response whose body could not be parsed as a <see cref="T:KoenZomers.OneDrive.Api.Entities.OneDriveError"/>
+            </summary>
         </member>
         <member name="M:KoenZomers.OneDrive.Api.OneDriveApi.AuthenticateUsingRefreshToken(System.String)">
             <summary>

@@ -15,7 +15,12 @@ namespace KoenZomers.OneDrive.Api.Exceptions
         /// <param name="innerException">Inner exception that was thrown to indicate failure of the operation (optional)</param>
         public TokenRetrievalFailedException(string message = null, Entities.OneDriveError errorDetails = null, Exception innerException = null) : base("Failed to retrieve OneDrive access token." + (string.IsNullOrEmpty(message) ? string.Empty : " Additional information: " + message), innerException)
         {
-
+            ErrorDetails = errorDetails;
         }
+
+        /// <summary>
+        /// Error returned by the token endpoint (e.g. Error = "invalid_grant", ErrorDescription = "AADSTS70008: ..."), or NULL if the response could not be parsed
+        /// </summary>
+        public Entities.OneDriveError ErrorDetails { get; }
     }
 }

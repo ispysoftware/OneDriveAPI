@@ -261,13 +261,40 @@ namespace KoenZomers.OneDrive.Api
                         }
                         catch(Exception ex)
                         {
-                            throw new Exceptions.TokenRetrievalFailedException(innerException: ex);
+                            // Keep the raw response in the message so the real reason from the token endpoint
+                            // (e.g. invalid_grant / AADSTS70008) is still visible when the error payload can't be parsed
+                            throw new Exceptions.TokenRetrievalFailedException(message: DescribeUnparsedTokenResponse(response, responseBody), innerException: ex);
                         }
 
-                        throw new Exceptions.TokenRetrievalFailedException(message: errorResult.ErrorDescription, errorDetails: errorResult);
+                        if (errorResult == null || (string.IsNullOrEmpty(errorResult.Error) && string.IsNullOrEmpty(errorResult.ErrorDescription)))
+                        {
+                            throw new Exceptions.TokenRetrievalFailedException(message: DescribeUnparsedTokenResponse(response, responseBody), errorDetails: errorResult);
+                        }
+
+                        // Include the error code (e.g. invalid_grant) as well as the description so callers can tell an expired
+                        // refresh token apart from a transient failure without having to inspect ErrorDetails
+                        var errorMessage = string.IsNullOrEmpty(errorResult.Error)
+                            ? errorResult.ErrorDescription
+                            : (string.IsNullOrEmpty(errorResult.ErrorDescription) ? errorResult.Error : errorResult.Error + ": " + errorResult.ErrorDescription);
+                        throw new Exceptions.TokenRetrievalFailedException(message: errorMessage, errorDetails: errorResult);
                     }
                 }
-            }       
+            }
+        }
+
+        /// <summary>
+        /// Builds a human readable description of a non-success token endpoint response whose body could not be parsed as a <see cref="OneDriveError"/>
+        /// </summary>
+        private static string DescribeUnparsedTokenResponse(HttpResponseMessage response, string responseBody)
+        {
+            const int maxBodyLength = 500;
+            var body = (responseBody ?? string.Empty).Trim();
+            if (body.Length > maxBodyLength)
+            {
+                body = body.Substring(0, maxBodyLength) + "...";
+            }
+            var status = "HTTP " + (int)response.StatusCode + " " + response.ReasonPhrase;
+            return body.Length == 0 ? status : status + ": " + body;
         }
 
         /// <summary>
@@ -1556,9 +1583,6 @@ namespace KoenZomers.OneDrive.Api
                 throw new ArgumentNullException("oneDriveUploadSession");
             }
 
-            // Get an access token to perform the request to OneDrive
-            var accessToken = await GetAccessToken();
-
             // Amount of bytes succesfully sent
             long totalBytesSent = 0;
 
@@ -1577,8 +1601,10 @@ namespace KoenZomers.OneDrive.Api
                 // Defines a buffer which will be filled with bytes from the original file and then sent off to the OneDrive webservice
                 var fragmentBuffer = new byte[fragmentSizeInBytes ?? ResumableUploadChunkSizeInBytes];
 
-                // Create an HTTPClient instance to communicate with the REST API of OneDrive to perform the upload 
-                using (var client = CreateHttpClient(accessToken.AccessToken))
+                // Create an HTTPClient instance to communicate with the REST API of OneDrive to perform the upload.
+                // The upload session URL is pre-authenticated: it must NOT carry an Authorization header. Graph documents
+                // that sending a bearer token on these PUTs can return HTTP 401 (personal OneDrive accounts do so consistently).
+                using (var client = CreateHttpClient())
                 {
                     // Keep looping through the source file length until we've sent all bytes to the OneDrive webservice
                     while (currentPosition < fileStream.Length)
@@ -1628,7 +1654,8 @@ namespace KoenZomers.OneDrive.Api
                                             UploadProgressChanged?.Invoke(this, new OneDriveUploadProgressChangedEventArgs(totalBytesSent, fileStream.Length));
                                             break;
                                         case HttpStatusCode.Unauthorized:
-                                            throw new ApplicationException("unauthorized");
+                                            var unauthorizedBody = await response.Content.ReadAsStringAsync();
+                                            throw new ApplicationException(string.IsNullOrWhiteSpace(unauthorizedBody) ? "unauthorized" : "unauthorized: " + unauthorizedBody.Trim());
                                         // All fragments have been received, the file did already exist and has been overwritten
                                         case HttpStatusCode.OK:
                                         // All fragments have been received, the file has been created

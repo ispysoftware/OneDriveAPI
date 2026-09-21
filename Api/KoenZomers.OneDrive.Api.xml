@@ -781,6 +781,31 @@
             Error returned by the token endpoint (e.g. Error = "invalid_grant", ErrorDescription = "AADSTS70008: ..."), or NULL if the response could not be parsed
             </summary>
         </member>
+        <member name="T:KoenZomers.OneDrive.Api.Exceptions.UploadSessionFailedException">
+            <summary>
+            Exception thrown when OneDrive does not hand out a resumable upload session. Carries what the
+            service answered, which used to be discarded: the caller only saw a null session and then an
+            ArgumentNullException for "oneDriveUploadSession", whatever the real reason was.
+            </summary>
+        </member>
+        <member name="P:KoenZomers.OneDrive.Api.Exceptions.UploadSessionFailedException.StatusCode">
+            <summary>
+            HTTP status OneDrive answered with, or NULL if there was no response at all
+            </summary>
+        </member>
+        <member name="P:KoenZomers.OneDrive.Api.Exceptions.UploadSessionFailedException.Response">
+            <summary>
+            Body of the response received from the OneDrive service (may be empty)
+            </summary>
+        </member>
+        <member name="M:KoenZomers.OneDrive.Api.Exceptions.UploadSessionFailedException.#ctor(System.Nullable{System.Net.HttpStatusCode},System.String,System.String)">
+            <summary>
+            Exception to indicate OneDrive refused, or failed, to create an upload session
+            </summary>
+            <param name="statusCode">HTTP status OneDrive answered with, or NULL if there was no response</param>
+            <param name="reason">Reason phrase and/or the error OneDrive gave, in words</param>
+            <param name="response">Body of the response received from the OneDrive service</param>
+        </member>
         <member name="T:KoenZomers.OneDrive.Api.Helpers.QueryStringBuilder">
             <summary>
             Helper class for building querystrings
@@ -2468,6 +2493,12 @@
             <param name="oneDriveUrl">Complete URL to call to create the resumable upload session</param>
             <param name="nameConflictBehavior">Defines how to deal with the scenario where a similarly named file already exists at the target location</param>
             <returns>OneDriveUploadSession instance containing the details where to upload the content to</returns>
+        </member>
+        <member name="M:KoenZomers.OneDrive.Api.OneDriveGraphApi.DescribeFailure(System.Net.Http.HttpResponseMessage,System.String)">
+            <summary>
+            The reason phrase of a failed response plus the error code and message Graph puts in the body
+            ({"error":{"code":"activityLimitReached","message":"..."}}), so the text says what to do about it
+            </summary>
         </member>
         <member name="M:KoenZomers.OneDrive.Api.OneDriveGraphApi.UploadFileViaResumableUploadInternal(System.IO.Stream,KoenZomers.OneDrive.Api.Entities.OneDriveUploadSession,System.Nullable{System.Int64})">
             <summary>

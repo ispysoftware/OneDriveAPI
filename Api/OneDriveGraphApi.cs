@@ -1020,9 +1020,86 @@ namespace KoenZomers.OneDrive.Api
                 }
             };   
             
-            // Call the Graph API webservice
-            var result = await SendMessageReturnOneDriveItem<OneDriveUploadSession>(uploadItemContainer, HttpMethod.Post, oneDriveUrl, HttpStatusCode.OK);
-            return result;
+            // Call the Graph API webservice. Done here rather than through SendMessageReturnOneDriveItem
+            // because that returns NULL for anything but the expected status and drops the response, so a
+            // throttled, unauthorised or out-of-space answer all surfaced later as the same
+            // ArgumentNullException("oneDriveUploadSession") with nothing to act on.
+            var bodyText = System.Text.Json.JsonSerializer.Serialize(uploadItemContainer, uploadItemContainer.GetType(), JSONOptions);
+            using (var response = await SendMessageReturnHttpResponse(bodyText, HttpMethod.Post, oneDriveUrl))
+            {
+                if (response == null)
+                {
+                    throw new Exceptions.UploadSessionFailedException(null, "no response from OneDrive", null);
+                }
+
+                var responseString = response.Content != null ? await response.Content.ReadAsStringAsync() : null;
+
+                if (response.StatusCode != HttpStatusCode.OK || string.IsNullOrEmpty(responseString))
+                {
+                    var reason = response.StatusCode == HttpStatusCode.OK ? "OK, but the response was empty" : DescribeFailure(response, responseString);
+                    throw new Exceptions.UploadSessionFailedException(response.StatusCode, reason, responseString);
+                }
+
+                try
+                {
+                    var options = new System.Text.Json.JsonSerializerOptions();
+                    options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+
+                    var session = System.Text.Json.JsonSerializer.Deserialize<OneDriveUploadSession>(responseString, options);
+                    if (session == null)
+                    {
+                        throw new Exceptions.UploadSessionFailedException(response.StatusCode, "empty upload session", responseString);
+                    }
+                    session.OriginalJson = responseString;
+                    return session;
+                }
+                catch (System.Text.Json.JsonException e)
+                {
+                    throw new Exceptions.InvalidResponseException(responseString, e);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The reason phrase of a failed response plus the error code and message Graph puts in the body
+        /// ({"error":{"code":"activityLimitReached","message":"..."}}), so the text says what to do about it
+        /// </summary>
+        private static string DescribeFailure(HttpResponseMessage response, string responseString)
+        {
+            // "Too Many Requests", "Unauthorized", "Insufficient Storage"... Spelled out when the server sent none.
+            var reason = !string.IsNullOrEmpty(response.ReasonPhrase)
+                ? response.ReasonPhrase
+                : System.Text.RegularExpressions.Regex.Replace(response.StatusCode.ToString(), "(?<=[a-z])(?=[A-Z])", " ");
+
+            if (!string.IsNullOrEmpty(responseString))
+            {
+                try
+                {
+                    using (var doc = System.Text.Json.JsonDocument.Parse(responseString))
+                    {
+                        if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object && doc.RootElement.TryGetProperty("error", out var error) && error.ValueKind == System.Text.Json.JsonValueKind.Object)
+                        {
+                            var code = error.TryGetProperty("code", out var c) ? c.ToString() : null;
+                            var message = error.TryGetProperty("message", out var m) ? m.ToString() : null;
+                            var detail = string.Join(" - ", new[] { code, message }.Where(s => !string.IsNullOrEmpty(s)));
+                            if (detail.Length > 0)
+                            {
+                                reason += ": " + (detail.Length > 300 ? detail.Substring(0, 300) : detail);
+                            }
+                        }
+                    }
+                }
+                catch (System.Text.Json.JsonException)
+                {
+                    // Not JSON (a gateway's HTML error page): the status and reason phrase are all there is
+                }
+            }
+
+            if (response.Headers.RetryAfter != null)
+            {
+                reason += " (retry after " + response.Headers.RetryAfter + ")";
+            }
+            return reason;
         }
 
         /// <summary>
@@ -1069,19 +1146,8 @@ namespace KoenZomers.OneDrive.Api
 
             completeUrl = ConstructCompleteUrl(completeUrl);
 
-            // Construct the OneDriveUploadSessionItemContainer entity with the upload details
-            // Add the conflictbehavior header to always overwrite the file if it already exists on OneDrive
-            var uploadItemContainer = new OneDriveUploadSessionItemContainer
-            {
-                Item = new OneDriveUploadSessionItem
-                {
-                    FilenameConflictBehavior = NameConflictBehavior.Replace
-                }
-            };
-
-            // Call the OneDrive webservice
-            var result = await SendMessageReturnOneDriveItem<OneDriveUploadSession>(uploadItemContainer, HttpMethod.Post, completeUrl, HttpStatusCode.OK);
-            return result;
+            // One place creates the session (overwrite on name conflict) and reports why OneDrive refused
+            return await CreateResumableUploadSessionInternal(completeUrl);
         }
 
         /// <summary>
@@ -1117,19 +1183,8 @@ namespace KoenZomers.OneDrive.Api
 
             completeUrl = ConstructCompleteUrl(completeUrl);
 
-            // Construct the OneDriveUploadSessionItemContainer entity with the upload details
-            // Add the conflictbehavior header to always overwrite the file if it already exists on OneDrive
-            var uploadItemContainer = new OneDriveUploadSessionItemContainer
-            {
-                Item = new OneDriveUploadSessionItem
-                {
-                    FilenameConflictBehavior = NameConflictBehavior.Replace
-                }
-            };
-
-            // Call the OneDrive webservice
-            var result = await SendMessageReturnOneDriveItem<OneDriveUploadSession>(uploadItemContainer, HttpMethod.Post, completeUrl, HttpStatusCode.OK);
-            return result;
+            // One place creates the session (overwrite on name conflict) and reports why OneDrive refused
+            return await CreateResumableUploadSessionInternal(completeUrl);
         }
 
         #endregion
